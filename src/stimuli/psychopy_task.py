@@ -11,11 +11,11 @@ HighlightColor = "red"
 
 FlashDurationSeconds = 0.12
 InterStimulusIntervalSeconds = 0.12
-NumberOfTrials = 40
+SelectionRepetitions = 4
 
 GridRows = 6
 GridColumns = 6
-TargetSymbol = "H"
+
 GridSymbols = [
     ["A", "B", "C", "D", "E", "F"],
     ["G", "H", "I", "J", "K", "L"],
@@ -31,7 +31,7 @@ YPositions = [0.6, 0.36, 0.12, -0.12, -0.36, -0.6]
 ProjectRoot = Path(__file__).resolve().parents[2]
 LogsDirectory = ProjectRoot / "data" / "logs"
 LogsDirectory.mkdir(parents=True, exist_ok=True)
-LogsFilePath = LogsDirectory / "session_001.csv"
+
 
 def create_window():
     return visual.Window(
@@ -42,13 +42,23 @@ def create_window():
     )
 
 
-def create_instruction_text(window):
+def create_instruction_text(window, target_symbol):
     return visual.TextStim(
         window,
-        text="rows and columns will flash. focus on one target. press escape to quit.",
+        text=f"focus on {target_symbol}. press escape to quit.",
         pos=(0, 0.85),
         color=DefaultTextColor,
         height=0.04,
+    )
+
+
+def create_status_text(window):
+    return visual.TextStim(
+        window,
+        text="",
+        pos=(0, -0.88),
+        color=DefaultTextColor,
+        height=0.05,
     )
 
 
@@ -60,7 +70,6 @@ def create_grid(window):
 
         for column_index in range(GridColumns):
             symbol = GridSymbols[row_index][column_index]
-
             text_stimulus = visual.TextStim(
                 window,
                 text=symbol,
@@ -68,7 +77,6 @@ def create_grid(window):
                 color=DefaultTextColor,
                 height=0.08,
             )
-
             current_row.append(text_stimulus)
 
         grid.append(current_row)
@@ -116,6 +124,18 @@ def build_flash_groups(row_groups, column_groups):
 
     return flash_groups
 
+
+def build_flash_sequence(flash_groups, repetitions):
+    flash_sequence = []
+
+    for _ in range(repetitions):
+        repeated_groups = flash_groups.copy()
+        random.shuffle(repeated_groups)
+        flash_sequence.extend(repeated_groups)
+
+    return flash_sequence
+
+
 def find_target_position(grid, target_symbol):
     for row_index, row in enumerate(grid):
         for column_index, stimulus in enumerate(row):
@@ -123,10 +143,6 @@ def find_target_position(grid, target_symbol):
                 return row_index, column_index
 
     raise ValueError(f"Target symbol {target_symbol} was not found in the grid.")
-
-
-def group_contains_target(group, target_symbol):
-    return any(stimulus.text == target_symbol for stimulus in group)
 
 
 def write_log_row(csv_writer, timestamp, trial_index, group_type, group_index, is_target_flash):
@@ -140,77 +156,132 @@ def write_log_row(csv_writer, timestamp, trial_index, group_type, group_index, i
         ]
     )
 
-def run_flash_loop(window, instruction, grid, flash_groups, target_symbol):
-    log_file = LogsFilePath.open("w", newline="", encoding="utf-8")
-    csv_writer = csv.writer(log_file)
-    csv_writer.writerow(
-        [
-            "timestamp",
-            "trial_index",
-            "group_type",
-            "group_index",
-            "is_target_flash",
-        ]
-    )
+
+def run_selection_cycle(window, grid, flash_groups, target_symbol, run_index, status_text):
+    log_file_path = LogsDirectory / f"session_{run_index:03d}_{target_symbol}.csv"
+
+    row_scores = [0] * GridRows
+    column_scores = [0] * GridColumns
+
+    target_row_index, target_column_index = find_target_position(grid, target_symbol)
+    flash_sequence = build_flash_sequence(flash_groups, SelectionRepetitions)
 
     clock = core.Clock()
-    target_row_index, target_column_index = find_target_position(grid, target_symbol)
 
-    instruction.draw()
-    draw_grid(grid)
+    with log_file_path.open("w", newline="", encoding="utf-8") as log_file:
+        csv_writer = csv.writer(log_file)
+        csv_writer.writerow(
+            [
+                "timestamp",
+                "trial_index",
+                "group_type",
+                "group_index",
+                "is_target_flash",
+            ]
+        )
+
+        for trial_index, flash_group in enumerate(flash_sequence):
+            if "escape" in event.getKeys():
+                raise KeyboardInterrupt
+
+            group_type, group_index, group = flash_group
+
+            is_target_flash = (
+                (group_type == "row" and group_index == target_row_index)
+                or (group_type == "column" and group_index == target_column_index)
+            )
+
+            predicted_is_target_flash = is_target_flash
+
+            if predicted_is_target_flash:
+                if group_type == "row":
+                    row_scores[group_index] += 1
+                else:
+                    column_scores[group_index] += 1
+
+            set_group_color(group, HighlightColor)
+
+            status_text.text = f"typing target {target_symbol}"
+            draw_grid(grid)
+            status_text.draw()
+            window.flip()
+
+            timestamp = clock.getTime()
+            write_log_row(
+                csv_writer=csv_writer,
+                timestamp=timestamp,
+                trial_index=trial_index,
+                group_type=group_type,
+                group_index=group_index,
+                is_target_flash=predicted_is_target_flash,
+            )
+
+            print(
+                f"trial={trial_index} type={group_type} index={group_index} target={predicted_is_target_flash}"
+            )
+
+            core.wait(FlashDurationSeconds)
+
+            reset_group_color(group)
+            draw_grid(grid)
+            status_text.draw()
+            window.flip()
+
+            core.wait(InterStimulusIntervalSeconds)
+
+    selected_row_index = max(range(GridRows), key=lambda index: row_scores[index])
+    selected_column_index = max(range(GridColumns), key=lambda index: column_scores[index])
+    selected_symbol = GridSymbols[selected_row_index][selected_column_index]
+
+    return selected_symbol
+
+
+def run_phrase_demo(window, grid, flash_groups):
+    target_sequence = ["H", "I"]
+    typed_text = ""
+    status_text = create_status_text(window)
+
+    for run_index, target_symbol in enumerate(target_sequence, start=1):
+        instruction_text = create_instruction_text(window, target_symbol)
+        selected_symbol = run_selection_cycle(
+            window=window,
+            grid=grid,
+            flash_groups=flash_groups,
+            target_symbol=target_symbol,
+            run_index=run_index,
+            status_text=status_text,
+        )
+        typed_text += selected_symbol
+        print(f"selected_symbol={selected_symbol}")
+
+        confirmation_text = visual.TextStim(
+            window,
+            text=f"selected {selected_symbol}",
+            pos=(0, 0.8),
+            color=DefaultTextColor,
+            height=0.05,
+        )
+        confirmation_text.draw()
+        draw_grid(grid)
+        status_text.draw()
+        instruction_text.draw()
+        window.flip()
+        core.wait(1.0)
+
+    final_text = visual.TextStim(
+        window,
+        text=f"typed text: {typed_text}",
+        pos=(0, 0),
+        color=DefaultTextColor,
+        height=0.06,
+    )
+    final_text.draw()
     window.flip()
-    core.wait(1.5)
-
-    event.clearEvents()
-
-    for trial_index in range(NumberOfTrials):
-        pressed_keys = event.getKeys()
-        if "escape" in pressed_keys:
-            break
-
-        group_type, group_index, group = random.choice(flash_groups)
-
-        is_target_flash = (
-            (group_type == "row" and group_index == target_row_index)
-            or (group_type == "column" and group_index == target_column_index)
-        )
-
-        set_group_color(group, HighlightColor)
-
-        instruction.draw()
-        draw_grid(grid)
-        window.flip()
-
-        timestamp = clock.getTime()
-        write_log_row(
-            csv_writer=csv_writer,
-            timestamp=timestamp,
-            trial_index=trial_index,
-            group_type=group_type,
-            group_index=group_index,
-            is_target_flash=is_target_flash,
-        )
-
-        print(
-            f"trial={trial_index} type={group_type} index={group_index} target={is_target_flash}"
-        )
-
-        core.wait(0.5)
-
-        reset_group_color(group)
-
-        instruction.draw()
-        draw_grid(grid)
-        window.flip()
-
-        core.wait(0.3)
-
-    log_file.close()
+    event.waitKeys(keyList=["space", "escape"])
 
 
 def main():
     window = create_window()
-    instruction = create_instruction_text(window)
     grid = create_grid(window)
 
     row_groups = extract_row_groups(grid)
@@ -218,13 +289,7 @@ def main():
     flash_groups = build_flash_groups(row_groups, column_groups)
 
     try:
-        run_flash_loop(
-            window=window,
-            instruction=instruction,
-            grid=grid,
-            flash_groups=flash_groups,
-            target_symbol=TargetSymbol,
-        )
+        run_phrase_demo(window=window, grid=grid, flash_groups=flash_groups)
     finally:
         window.close()
         core.quit()
