@@ -6,6 +6,8 @@ class SelectionResult:
     selected_row_index: int
     selected_column_index: int
     selected_symbol: str
+    row_score: float
+    column_score: float
 
 
 class P300Decoder:
@@ -23,14 +25,16 @@ class P300Decoder:
         self.row_scores = [0.0 for _ in range(len(grid_symbols))]
         self.column_scores = [0.0 for _ in range(expected_row_length)]
 
-    def register_row_prediction(self, row_index: int, confidence: float = 1.0) -> None:
+    def register_row_prediction(self, row_index: int, confidence: float) -> None:
+        if row_index < 0 or row_index >= len(self.row_scores):
+            raise IndexError(f"Row index out of range: {row_index}")
+
         self.row_scores[row_index] += confidence
 
-    def register_column_prediction(
-        self,
-        column_index: int,
-        confidence: float = 1.0,
-    ) -> None:
+    def register_column_prediction(self, column_index: int, confidence: float) -> None:
+        if column_index < 0 or column_index >= len(self.column_scores):
+            raise IndexError(f"Column index out of range: {column_index}")
+
         self.column_scores[column_index] += confidence
 
     def resolve_selection(self) -> SelectionResult:
@@ -48,6 +52,8 @@ class P300Decoder:
             selected_row_index=selected_row_index,
             selected_column_index=selected_column_index,
             selected_symbol=selected_symbol,
+            row_score=self.row_scores[selected_row_index],
+            column_score=self.column_scores[selected_column_index],
         )
 
     def reset(self) -> None:

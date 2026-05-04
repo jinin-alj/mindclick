@@ -243,6 +243,7 @@ def run_selection_cycle(window, grid, flash_groups, target_symbol, run_index, st
 
     selection_result = decoder.resolve_selection()
     selected_symbol = selection_result.selected_symbol
+    decoder.reset()
     return selected_symbol
 
 
