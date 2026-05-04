@@ -4,6 +4,10 @@ import random
 from pathlib import Path
 from src.acquisition.signal_source import IdealSignalSource
 from src.modeling.p300_decoder import P300Decoder
+from src.acquisition.p300_playback_source import (
+    ReplaySignalSource,
+    build_flash_sequence_from_replay,
+)
 
 
 WindowSize = (900, 700)
@@ -163,12 +167,14 @@ def run_selection_cycle(window, grid, flash_groups, target_symbol, run_index, st
     decoder = P300Decoder(GridSymbols)
     log_file_path = LogsDirectory / f"session_{run_index:03d}_{target_symbol}.csv"
 
-    row_scores = [0] * GridRows
-    column_scores = [0] * GridColumns
-
     target_row_index, target_column_index = find_target_position(grid, target_symbol)
-    signal_source = IdealSignalSource(target_row_index, target_column_index)
-    flash_sequence = build_flash_sequence(flash_groups, SelectionRepetitions)
+    replay_path = ProjectRoot / "data" / "replay" / "bigp3bci_session_001.csv"
+    if replay_path.is_file():
+        signal_source = ReplaySignalSource(replay_path)
+        flash_sequence = build_flash_sequence_from_replay(replay_path, flash_groups)
+    else:
+        signal_source = IdealSignalSource(target_row_index, target_column_index)
+        flash_sequence = build_flash_sequence(flash_groups, SelectionRepetitions)
 
     clock = core.Clock()
 
@@ -180,7 +186,7 @@ def run_selection_cycle(window, grid, flash_groups, target_symbol, run_index, st
                 "trial_index",
                 "group_type",
                 "group_index",
-                "is_target_flash",
+                "predicted_is_target_flash",
             ]
         )
 
@@ -195,12 +201,15 @@ def run_selection_cycle(window, grid, flash_groups, target_symbol, run_index, st
                 or (group_type == "column" and group_index == target_column_index)
             )
 
-            predicted_is_target_flash = signal_source.predict_target_flash(group_type, group_index)
+            predicted_is_target_flash, confidence = signal_source.predict_target_flash(
+                group_type = group_type, 
+                group_index = group_index
+                )
             if predicted_is_target_flash:
                 if group_type == "row":
-                    decoder.register_row_prediction(group_index)
+                    decoder.register_row_prediction(group_index, confidence)
                 else:
-                    decoder.register_column_prediction(group_index)
+                    decoder.register_column_prediction(group_index, confidence)
 
             set_group_color(group, HighlightColor)
 
