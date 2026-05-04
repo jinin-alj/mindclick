@@ -2,6 +2,7 @@ from psychopy import visual, core, event
 import csv
 import random
 from pathlib import Path
+from src.acquisition.signal_source import IdealSignalSource
 from src.modeling.p300_decoder import P300Decoder
 
 
@@ -166,6 +167,7 @@ def run_selection_cycle(window, grid, flash_groups, target_symbol, run_index, st
     column_scores = [0] * GridColumns
 
     target_row_index, target_column_index = find_target_position(grid, target_symbol)
+    signal_source = IdealSignalSource(target_row_index, target_column_index)
     flash_sequence = build_flash_sequence(flash_groups, SelectionRepetitions)
 
     clock = core.Clock()
@@ -193,8 +195,7 @@ def run_selection_cycle(window, grid, flash_groups, target_symbol, run_index, st
                 or (group_type == "column" and group_index == target_column_index)
             )
 
-            predicted_is_target_flash = is_target_flash
-
+            predicted_is_target_flash = signal_source.predict_target_flash(group_type, group_index)
             if predicted_is_target_flash:
                 if group_type == "row":
                     decoder.register_row_prediction(group_index)
