@@ -2,6 +2,7 @@ from psychopy import visual, core, event
 import csv
 import random
 from pathlib import Path
+from src.modeling.p300_decoder import P300Decoder
 
 
 WindowSize = (900, 700)
@@ -158,6 +159,7 @@ def write_log_row(csv_writer, timestamp, trial_index, group_type, group_index, i
 
 
 def run_selection_cycle(window, grid, flash_groups, target_symbol, run_index, status_text):
+    decoder = P300Decoder(GridSymbols)
     log_file_path = LogsDirectory / f"session_{run_index:03d}_{target_symbol}.csv"
 
     row_scores = [0] * GridRows
@@ -195,9 +197,9 @@ def run_selection_cycle(window, grid, flash_groups, target_symbol, run_index, st
 
             if predicted_is_target_flash:
                 if group_type == "row":
-                    row_scores[group_index] += 1
+                    decoder.register_row_prediction(group_index)
                 else:
-                    column_scores[group_index] += 1
+                    decoder.register_column_prediction(group_index)
 
             set_group_color(group, HighlightColor)
 
@@ -229,10 +231,8 @@ def run_selection_cycle(window, grid, flash_groups, target_symbol, run_index, st
 
             core.wait(InterStimulusIntervalSeconds)
 
-    selected_row_index = max(range(GridRows), key=lambda index: row_scores[index])
-    selected_column_index = max(range(GridColumns), key=lambda index: column_scores[index])
-    selected_symbol = GridSymbols[selected_row_index][selected_column_index]
-
+    selection_result = decoder.resolve_selection()
+    selected_symbol = selection_result.selected_symbol
     return selected_symbol
 
 
